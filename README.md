@@ -6,12 +6,13 @@ The `rank_acf_sigbands()` / `rank_acf_confbands()` workflow is inspired by [ACFb
 
 ## Install
 
-Download `rankACFbands_0.1.1.tar.gz` and run:
-
+Run
 ```r
+install.packages("devtools")
 install.packages("mvtnorm")
-install.packages("~/Downloads/rankACFbands_0.1.1.tar.gz",
-                 repos = NULL, type = "source")
+library(devtools)
+library(mvtnorm)
+devtools::install_github("jan-lukas-wermuth/rankACFbands")
 library(rankACFbands)
 ```
 
