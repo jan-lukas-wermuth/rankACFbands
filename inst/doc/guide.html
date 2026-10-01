@@ -1,0 +1,111 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>rankACFbands — implementation guide</title><style>
+:root{color-scheme:light}body{font:17px/1.65 system-ui,-apple-system,sans-serif;color:#24323d;background:#f5f7f8;margin:0}main{max-width:950px;margin:35px auto;background:white;padding:42px 58px;border-top:6px solid #145a70;box-shadow:0 6px 25px #10253212}h1{font-size:2.05rem;line-height:1.2;color:#103b4b}h2{margin-top:2.1em;color:#145a70;border-bottom:1px solid #dce5e9;padding-bottom:8px}h3{color:#145a70}code{background:#edf3f5;padding:2px 5px;border-radius:3px;font-size:.88em}pre{padding:18px;overflow-x:auto;background:#edf3f5}pre code{padding:0}table{border-collapse:collapse;width:100%;font-size:15px}td,th{text-align:left;padding:10px;border-bottom:1px solid #dce5e9}th{background:#edf3f5}a{color:#126b8a}li{margin:8px 0}@media(max-width:650px){main{margin:0;padding:24px}h1{font-size:1.7rem}}@media print{body{background:white}main{box-shadow:none;margin:0;padding:0}h2{break-after:avoid}table{break-inside:avoid}}
+</style></head><body><main><h1>rankACFbands: implementation and usage guide</h1>
+<p>Version 0.1.1 — implementation based on the September 29, 2026 manuscript.</p>
+<h2>1. Scope and assumptions</h2>
+<p>The package implements the statistical methods specified in Sections 2–4 of <em>Rank Autocorrelations</em> by Marc-Oliver Pohle, Christian H. Weiss and Jan-Lukas Wermuth. The manuscript is a draft: its simulation/application sections contain proposals rather than completed methods. Those editorial suggestions are not executable specifications and are not implemented as additional estimators. The package does not bundle the private manuscript or claim endorsement by its authors.</p>
+<p>All five methods accept a regularly spaced univariate numeric series or an ordered factor. Strictly monotone transformations preserve the rank coefficients, including simultaneous reversal of the ordering. Missing or infinite values and unordered factors are rejected. To handle gaps, choose and justify a time-series preprocessing strategy yourself rather than deleting rows inside the estimator. No moment assumption on the observations is imposed by the code.</p>
+<p>The theoretical inference requires the stated stationarity, ergodicity and mixing assumptions, fixed H, nonzero normalization denominators, and positive marginal limiting variances. HAC consistency requires a growing bandwidth that is o(sqrt(T)). Small-sample performance is not guaranteed. These routines do not include adjustments for residual estimation in dynamic or static regressions.</p>
+<h2>2. Installation and function selection</h2>
+<p>Install the source tarball with <code>install.packages(path, repos=NULL, type=&quot;source&quot;)</code>. All runtime dependencies are standard R packages. No compiler is needed. The ZIP is an editable source directory; open its <code>.Rproj</code> in RStudio if you want to develop the package.</p>
+<ul>
+<li><code>rank_acf</code>: estimation only, returning lag zero and lags 1,...,H.</li>
+<li><code>rank_acf_sigbands</code>: iid null-centered non-rejection bands.</li>
+<li><code>rank_acf_confbands</code>: general estimate-centered confidence bands.</li>
+<li><code>rank_acf_test</code>: sup-t test, returning an <code>htest</code> object.</li>
+<li><code>rank_box_test</code>: iid rank Box-Pierce or general HAC Wald test.</li>
+<li><code>rank_hac</code>: covariance and diagnostics without band calibration.</li>
+<li><code>rank_projections</code>, <code>rank_ties</code>, <code>rank_iid_variance</code>: lower-level quantities.</li>
+<li><code>supt_critical</code>: critical value from an arbitrary positive-diagonal PSD covariance.</li>
+</ul>
+<p>The API follows the workflow of ACFbands, but it is not a drop-in replacement and does not copy its code. Supply <code>method=&quot;rho&quot;</code>, <code>&quot;tau&quot;</code>, <code>&quot;rho_b&quot;</code>, <code>&quot;tau_b&quot;</code>, or <code>&quot;gamma&quot;</code>; the default is grade (<code>&quot;rho_b&quot;</code>). To compare methods, loop over these five strings. <code>plot=FALSE</code> returns all results without drawing.</p>
+<h2>3. Exact finite-sample definitions</h2>
+<p>Let T be the series length and G-hat(X_t)=(midrank(X_t)-1/2)/T, using the full sample.</p>
+<ul>
+<li><strong>rho(h)</strong> = (12/T) sum from t=1 to T-h of (G-hat(X_t)-1/2)(G-hat(X_(t+h))-1/2).</li>
+<li><strong>tau(h)</strong> = the average of sign(X_s-X_t) sign(X_(s+h)-X_(t+h)) over unordered pairs 1 &lt;= s &lt; t &lt;= T-h.</li>
+<li><strong>nu(h)</strong> = the fraction of those unordered pairs tied in at least one coordinate.</li>
+<li><strong>rho_b(h)</strong> = rho(h)/rho(0).</li>
+<li><strong>tau_b(h)</strong> = tau(h)/tau(0).</li>
+<li><strong>gamma(h)</strong> = tau(h)/(1-nu(h)).</li>
+</ul>
+<p>These definitions match the displayed formulas in Definitions 4–5. Rho uses denominator T, whereas tau and nu are U-statistics on T-h pairs. Rho_b equals <code>acf(rank(x), plot=FALSE)</code> with the same maximum lag. Pairwise <code>cor(head(x,-h), tail(x,-h), method=&quot;spearman&quot;)</code> instead reranks within the two lagged samples and generally differs.</p>
+<p>Similarly, base R&#39;s Kendall correlation is pairwise tau-b, not the paper&#39;s tau-a. The paper&#39;s tau_b normalizes by the full-series tau(0). Its finite-sample value can exceed [-1,1] because the numerator and denominator use different samples. We preserve the defined estimator, without clipping. Normalized estimators equal one at lag zero; raw rho(0) and tau(0) need not.</p>
+<p><code>rank_ties</code> uses plug-in probabilities zeta=sum(p_j^2), zeta2=sum(p_j^3). In contrast, tau(0) uses the off-diagonal U-statistic tie correction. These distinct finite-sample conventions are intentional.</p>
+<h2>4. Efficient projection estimation</h2>
+<p>The implementation computes every projection in Section 4.2, without an extra order factor. For h&gt;0 it uses the global empirical marginal distribution and the empirical pair distribution of (X_t,X_(t+h)), t=1,...,T-h. It uses the manuscript&#39;s separate formulas for h=0.</p>
+<p>The bivariate mid-distribution is the empirical average of the product of two mid-step functions. A Fenwick cumulative-count tree computes these quantities at the observed pairs in O(T log T) time per lag, including tied values, without allocating T by T matrices. Marginal and joint tie counts are exact.</p>
+<p>For the additional rho terms, write the mid-step as 1{q&gt;z} + (1/2)1{q=z}. For any observed value v, the average of mid-step(X_t-v) over the full sample is 1-G-hat(v). Thus the average of G-hat_h(x,X_t) can be evaluated by a weighted cumulative sum over the lagged pairs. This algebra is exact for the empirical distributions, including ties, and avoids a triple loop. The test suite separately evaluates the original nested empirical averages and compares every projection.</p>
+<p>Estimated projections are not necessarily exactly sample-centered. The default <code>center=FALSE</code> retains the manuscript&#39;s literal plug-in formula. <code>center=TRUE</code> is an optional finite-sample modification and is recorded in the result.</p>
+<h2>5. HAC covariance and delta method</h2>
+<p>For primitive projections a(h), b(h&#39;), let h-star=max(h,h&#39;). The estimator uses:</p>
+<ol>
+<li>Contemporaneous products summed over t=1,...,T-h-star and divided by T.</li>
+<li>For each s=1,...,bandwidth, both directional products summed over t=1,...,T-s-h-star and divided by T. Empty ranges contribute zero.</li>
+<li>Weights w(s/(bandwidth+1)).</li>
+<li>The multiplier r(a)r(b) on the <strong>whole sum</strong>, with r(rho)=3 and r(tau)=r(nu)=2.</li>
+</ol>
+<p>Default Bartlett weights are 1-s/(bandwidth+1), and bandwidth=floor(2*T^(1/3)), capped at T-1. Parzen and Tukey-Hanning windows are also available. A zero bandwidth is supported for inspection, but it is not the iid independence variance: projections for different autocorrelation lags share observations.</p>
+<p>Primitive ordering is rho.0,...,rho.H or tau.0,...,tau.H for normalized estimators and tau.1,nu.1,tau.2,nu.2,... for gamma. <code>jacobian</code> exposes the exact analytic derivatives. The final matrix is J Sigma J&#39;. The tau_b and rho_b cross term has a negative sign; the gamma cross term has a positive sign.</p>
+<p><code>covariance</code> is the asymptotic matrix for sqrt(T)(estimate-parameter). <code>vcov(result)</code> divides by T. Standard errors are sqrt(diag(covariance)/T). <code>primitive_covariance</code>, <code>raw_covariance</code>, <code>jacobian</code> and <code>projections</code> remain available for inspection.</p>
+<h3>Finite-sample positive semidefiniteness</h3>
+<p>The manuscript&#39;s pair-specific end truncations do not form a single common-sample Gram matrix. As a result, a finite-sample covariance can be indefinite, even with Bartlett weights. Default <code>psd=&quot;clip&quot;</code> replaces negative eigenvalues of the final transformed matrix by zero. Material adjustments produce a warning. The result retains the raw matrix, its minimum eigenvalue, an adjustment flag and relative Frobenius change. No positive ridge is added.</p>
+<p>Use <code>psd=&quot;error&quot;</code> to reject material indefiniteness or <code>psd=&quot;none&quot;</code> to inspect the literal raw estimate. Gaussian calibration rejects indefinite matrices and zero/negative marginal variances. A singular PSD matrix with positive diagonal is supported for sup-t integration. The HAC Wald test requires a positive definite matrix and refuses to assign a chi-square law to an arbitrary pseudoinverse.</p>
+<h2>6. Iid significance bands and Box-Pierce</h2>
+<p>The scalar asymptotic variances under independence are:</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Asymptotic variance</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>rho</td>
+<td>(1-zeta2)^2</td>
+</tr>
+<tr>
+<td>tau</td>
+<td>(4/9)(1-zeta2)^2</td>
+</tr>
+<tr>
+<td>rho_b</td>
+<td>1</td>
+</tr>
+<tr>
+<td>tau_b</td>
+<td>(4/9)(1-zeta2)^2/(1-zeta)^2</td>
+</tr>
+<tr>
+<td>gamma</td>
+<td>(4/9)(1-zeta2)^2/(1-zeta)^4</td>
+</tr>
+</tbody></table>
+<p>The joint covariance is this variance times I_H. Pointwise critical values are ordinary normal quantiles. Two-sided simultaneous sup-t/Sidak critical values are qnorm((1+(1-alpha)^(1/H))/2). One-sided values are qnorm((1-alpha)^(1/H)). Bonferroni is available as an alternative.</p>
+<p>The rank Box-Pierce statistic is T*sum(estimated_acf^2)/estimated_asymptotic_variance, compared to chi-square(H). It is a test against departures visible in the selected rank autocorrelations, not a characterization of every possible dependence alternative. The optional HAC Wald test generalizes the quadratic form to arbitrary specified rank-correlation vectors and is an explicit extension of the draft&#39;s editorial proposal.</p>
+<h2>7. General and one-sided inference</h2>
+<p>Sup-t calibration standardizes the estimated covariance to a correlation matrix and solves P(-c &lt;= Z_h &lt;= c for every h) = 1-alpha using stats::uniroot and mvtnorm::pmvnorm. One-sided calibration solves P(Z_h &lt;= c for every h) = 1-alpha. P-values are one minus the same joint coverage evaluated at the observed maximum. For independent components or H=1 it uses exact normal quantiles. The Genz-Bretz probability integrator is randomized and supports singular PSD matrices; one fixed integration seed is reused throughout the calculation. No empirical Gaussian-maximum quantile is used. Rejection flags use p.value &lt; alpha, so they agree with reported p-values. Band crossings can differ within integration/root tolerance. Results record maxpts, abseps, integration.seed and the largest estimated integration error across evaluations; an unmet tolerance generates a warning. The legacy nsim argument is a deprecated alias for maxpts.</p>
+<p>For one-sided confidence bands, the critical value is the quantile of max(Z_h). A greater alternative returns estimate-critical<em>SE as the lower bound, with upper=Inf. A less alternative returns estimate+critical</em>SE as the upper bound, with lower=-Inf. Centered Gaussian symmetry makes the critical value equal for these two choices, but each has a separate 1-alpha guarantee; their intersection is not a two-sided 1-alpha band. Select direction before inspecting the estimates.</p>
+<p>For significance bands under independence, greater means an upper rejection threshold about zero, with lower=-Inf; less means a lower threshold, with upper=Inf. This difference from confidence-band direction is deliberate.</p>
+<p><code>table$p.value</code> is pointwise. <code>table$adjusted.p.value</code> uses the chosen simultaneous calibration (or is unadjusted for pointwise bands). The object-level p.value is the joint maximum test. For multi-lag pointwise bands it is NA, as is the object-level rejection decision. An arbitrary scalar or vector <code>null</code> can be supplied to general confidence bands/tests. The band itself remains centered on the estimates.</p>
+<h2>8. Draft ambiguities resolved in this version</h2>
+<ol>
+<li>Definition 4 mixes n and T in the rank representation; code uses T throughout and follows the mid-distribution expression. Rho uses denominator T, as displayed. The adjacent editorial question is not an instruction to change the formula.</li>
+<li>Section 3.4 prints a standard-deviation symbol in the Box-Pierce denominator. The chi-square derivation requires its square, the variance. That is what the package uses.</li>
+<li>Section 4.3 correctly uses a square root in the scalar test denominator. The earlier guide incorrectly stated otherwise. Code divides by sqrt(covariance/T), in agreement with the manuscript.</li>
+<li>The long-run covariance display is interpreted as an expectation of a product of centered projections, and the entire weighted sum carries the U-statistic order factors.</li>
+<li>The proposal to reject after more than alpha*H pointwise exceedances does not control size in general and is not implemented. Simultaneous bands use their calibrated maximum instead.</li>
+<li>The manuscript&#39;s simulation competitors and hypothetical empirical applications are not implemented as if they were new methods. One-sided bands, Bonferroni, additional HAC windows and the general HAC Wald test are documented extensions.</li>
+<li>The manuscript assumes valid nondegenerate ratios. Undefined sample denominators and zero marginal standard errors produce informative errors instead of silent NaNs or invented confidence intervals.</li>
+</ol>
+<h2>9. Reproducibility, speed and release status</h2>
+<p>The package code is R and uses mvtnorm for joint Gaussian probabilities. Estimation is O(H<em>T</em>log(T)); computing all projections stores O(H<em>T) values. HAC computation is O(H^2</em>T*bandwidth). Gaussian integration costs depend on maxpts, abseps and H. Very large H or T can take appreciable time; the asymptotic results concern fixed H rather than a growing-dimensional regime.</p>
+<p>A non-NULL seed preserves the caller&#39;s random state. Numerical eigenvalue truncation is reported, never hidden. Defaults are maxpts=1000000 and abseps=1e-5, with root tolerance 1e-7. Increase maxpts and reduce abseps to check sensitivity near a rejection threshold. Genz-Bretz error estimates are numerical diagnostics, not rigorous deterministic error bounds.</p>
+<p>The automated validation compares optimized code with direct definitions, exact HAC sums and numerical derivatives. It checks iid variance scaling, exact Sidak values, positive and negative monotone transformations, ties, one-sided direction, RNG restoration, invalid inputs, singular covariance support and plotting. <code>coverage-diagnostic.R</code> is a reproducible supplementary experiment, not a formal proof of coverage. This is version 0.1.1, a research implementation rather than a CRAN-reviewed release. Inspect the source and resolve any future manuscript changes before publication.</p>
+<h2>References</h2>
+<ul>
+<li>Pohle, M.-O., Weiss, C. H. and Wermuth, J.-L. (2026). <em>Rank Autocorrelations</em>. Supplied draft dated September 29.</li>
+<li>Montiel Olea, J. L. and Plagborg-Moller, M. (2019). Simultaneous confidence bands: Theory, implementation, and an application to SVARs. <em>Journal of Applied Econometrics</em> 34, 1–17. DOI: 10.1002/jae.2656.</li>
+<li>ACFbands interface reference: <a href="https://github.com/TanjaZahn/ACFbands">https://github.com/TanjaZahn/ACFbands</a>. No source code was copied.</li>
+</ul>
+</main></body></html>

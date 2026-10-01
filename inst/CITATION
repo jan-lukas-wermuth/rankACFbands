@@ -1,0 +1,9 @@
+bibentry(bibtype = "Manual",
+  title = "Rank Autocorrelations",
+  author = c(person("Marc-Oliver", "Pohle"), person("Christian H.", "Weiss"), person("Jan-Lukas", "Wermuth")),
+  year = "2026", note = "Unpublished draft dated September 29, 2026; methodology implemented in rankACFbands 0.1.1.")
+bibentry(bibtype = "Article",
+  title = "Simultaneous confidence bands: Theory, implementation, and an application to SVARs",
+  author = c(person("Jose Luis", "Montiel Olea"), person("Mikkel", "Plagborg-Moller")),
+  journal = "Journal of Applied Econometrics", year = "2019", volume = "34",
+  pages = "1--17", doi = "10.1002/jae.2656")

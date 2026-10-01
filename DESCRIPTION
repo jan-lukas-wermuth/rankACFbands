@@ -1,0 +1,18 @@
+Package: rankACFbands
+Type: Package
+Title: Rank Autocorrelations and Simultaneous Inference Bands
+Version: 0.1.1
+Authors@R: person("Jan-Lukas", "Wermuth", role = c("aut", "cre"),
+    email = "wermuth@econ.uni-frankfurt.de")
+Description: Estimates classical and generalized rank autocorrelations with
+    explicit treatment of ties. Implements independence significance bands,
+    rank Box-Pierce tests, heteroskedasticity and autocorrelation consistent
+    covariance estimation, delta-method inference, and Gaussian sup-t bands.
+    Methods follow the September 29, 2026 draft 'Rank Autocorrelations' by
+    Pohle, Weiss and Wermuth; implementation decisions are documented in the
+    package guide. Includes one-sided simultaneous bands and general Wald tests.
+License: GPL-3
+Encoding: UTF-8
+Depends: R (>= 4.1.0)
+Imports: stats, graphics, grDevices, utils, mvtnorm, DescTools
+RoxygenNote: 7.3.2
